@@ -3,6 +3,7 @@ package main
 import (
 	"container/heap"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -27,12 +28,14 @@ func main() {
 	conf.CallGen = func(d time.Duration) time.Duration {
 		// bursty traffic for 10 seconds every minute
 		if d%time.Minute < 10*time.Second {
-			return 10 * time.Millisecond
+			return 5 * time.Millisecond
 		}
 		return 500 * time.Millisecond
 	}
 
+	now := time.Now()
 	m := Run(&conf)
+	fmt.Println("sim runtime:", time.Since(now))
 
 	http.HandleFunc("/log/", log(m))
 	http.HandleFunc("/", dash(m))
@@ -185,7 +188,7 @@ func Run(conf *Config) *Mustapha {
 	heap.Init(m.events)
 
 	// start recording metrics & start the call train
-	m.Queue(eventRecord{}, recordInterval)
+	m.Queue(eventRecord{}, 0)
 	m.Queue(eventCall{}, 0)
 
 	for m.now < conf.Runtime {
@@ -249,14 +252,14 @@ func (e eventCall) handleEvent(m *Mustapha) {
 	m.Queue(eventCall{}, next)
 
 	// see what we can process // TODO or just do it here?
-	m.Queue(eventProcess{}, m.now)
+	m.Queue(eventProcess{}, 0)
 }
 
 func (e eventProcess) handleEvent(m *Mustapha) {
 	if len(m.lb.machines) < 1 {
 		if m.machinesBooting == 0 {
 			// TODO just adds 1 node, for now, to get going
-			m.Queue(eventNodeAdd{}, m.now)
+			m.Queue(eventNodeAdd{}, 0)
 		}
 		return
 	}
@@ -282,7 +285,7 @@ func (e eventProcess) handleEvent(m *Mustapha) {
 			m.requestsRunning = append(m.requestsRunning, call)
 
 			// TODO timeout should precisely create event here
-			m.Queue(eventCallFinish{}, m.now+call.runtime)
+			m.Queue(eventCallFinish{}, call.runtime)
 			continue
 		} // else, leave it queued
 
@@ -294,7 +297,7 @@ func (e eventProcess) handleEvent(m *Mustapha) {
 		//}
 		//}
 		//if !room {
-		//m.Queue(eventNodeAdd{}, now)
+		//m.Queue(eventNodeAdd{}, 0)
 		//}
 	}
 }
@@ -326,7 +329,7 @@ func (e eventCallFinish) handleEvent(m *Mustapha) {
 	}
 
 	// once we finish calls, queued ones can run immediately
-	m.Queue(eventProcess{}, m.now)
+	m.Queue(eventProcess{}, 0)
 }
 
 func (e eventNodeAdd) handleEvent(m *Mustapha) {
@@ -343,7 +346,7 @@ func (e eventNodeReady) handleEvent(m *Mustapha) {
 
 	// after adding a node, try to run stuff for 0->1 case
 	// TODO behavior mismatch, currently we fail requests if no nodes.
-	m.Queue(eventProcess{}, m.now)
+	m.Queue(eventProcess{}, 0)
 }
 
 func (m *Mustapha) timeoutQueued() {
